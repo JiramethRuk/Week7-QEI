@@ -50,6 +50,21 @@ UART_HandleTypeDef huart2;
 uint64_t _micros = 0;
 float EncoderVel = 0;
 uint64_t Timestamp_Encoder = 0;
+
+
+uint32_t PWMOut = 0;
+
+uint64_t _micro = 0;
+
+float Volt = 1;
+float KP = 0;
+float KI = 0;
+float KD = 0;
+float error = 0;
+float integral_error = 0;
+float last_error = 0;
+float newVolt = 0;
+int RPMInput = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -62,6 +77,7 @@ static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 uint64_t micros();
 float EncoderVelocity_Update();
+void RPMOut();
 
 /* USER CODE END PFP */
 
@@ -105,6 +121,9 @@ int main(void)
   /* USER CODE BEGIN 2 */
 	HAL_TIM_Base_Start_IT(&htim2);
 	HAL_TIM_Encoder_Start(&htim1, TIM_CHANNEL_ALL);
+	HAL_TIM_Base_Start(&htim3);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -130,6 +149,55 @@ int main(void)
 			Timestamp_Encoder = micros();
 			EncoderVel = (EncoderVel * 99 + EncoderVelocity_Update()) / 100.0; //P/S
 			EncoderVel = EncoderVel*(60/3071);  //RPM
+
+//			error = RPMInput-EncoderVel;
+//			integral_error += error;
+//			PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
+//			last_error = error;
+
+//			RPMOut();
+
+			if (RPMInput>0)
+			{
+				error = RPMInput-EncoderVel;
+				integral_error += error;
+				PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
+				last_error = error;
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+			}
+			else if(RPMInput<0)
+			{
+				error = -RPMInput-EncoderVel;
+				integral_error += error;
+				PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
+				last_error = error;
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
+			}
+			else
+			{
+				PWMOut = 0;
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+			}
+
+//			RPMOut();
+//			if(PWMOut > 0)
+//			{
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+//			}
+//			else if (PWMOut < 0)
+//			{
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
+//			}
+//			else
+//			{
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+//			}
 
 		}
 
@@ -412,6 +480,8 @@ static void MX_GPIO_Init(void)
 
 int32_t EncoderPositionDiff;
 uint64_t EncoderTimeDiff;
+uint32_t EncoderNowPosition;
+uint32_t EncoderLastPosition;
 
 float EncoderVelocity_Update()  //Angular velocity
 {
@@ -420,11 +490,11 @@ float EncoderVelocity_Update()  //Angular velocity
 	static uint64_t EncoderLastTimestamp = 0;
 
 	//read data
-	uint32_t EncoderNowPosition = HTIM_ENCODER.Instance->CNT;
+	EncoderNowPosition = HTIM_ENCODER.Instance->CNT;
 	uint64_t EncoderNowTimestamp = micros();
 
-//	int32_t EncoderPositionDiff;
-//	uint64_t EncoderTimeDiff;
+	int32_t EncoderPositionDiff;
+	uint64_t EncoderTimeDiff;
 
 	EncoderTimeDiff = EncoderNowTimestamp - EncoderLastTimestamp;
 	EncoderPositionDiff = EncoderNowPosition - EncoderLastPosition;
@@ -459,6 +529,26 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 uint64_t micros()
 {
 	return _micros + htim2.Instance->CNT;
+}
+
+void RPMOut()
+{
+	if(RPMInput > 0)
+	{
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+	}
+	else if (RPMInput < 0)
+	{
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
+	}
+	else
+	{
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+		PWMOut = 0;
+	}
 }
 /* USER CODE END 4 */
 
