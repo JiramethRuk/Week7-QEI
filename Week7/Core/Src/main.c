@@ -19,7 +19,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
+#include "math.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -49,22 +49,24 @@ UART_HandleTypeDef huart2;
 /* USER CODE BEGIN PV */
 uint64_t _micros = 0;
 float EncoderVel = 0;
+float EncoderVelRPM = 0;
 uint64_t Timestamp_Encoder = 0;
 
 
-uint32_t PWMOut = 0;
+int PWMOut = 3000;
 
 uint64_t _micro = 0;
 
 float Volt = 1;
-float KP = 0;
-float KI = 0;
-float KD = 0;
+float KP = 125;
+float KI = 1;
+float KD = 1;
 float error = 0;
 float integral_error = 0;
 float last_error = 0;
 float newVolt = 0;
 int RPMInput = 0;
+float _EncoderVelocity_Update = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,6 +80,7 @@ static void MX_TIM3_Init(void);
 uint64_t micros();
 float EncoderVelocity_Update();
 void RPMOut();
+
 
 /* USER CODE END PFP */
 
@@ -144,60 +147,35 @@ int main(void)
 
 
 		//Add LPF?
-		if (micros() - Timestamp_Encoder >= 100)
+		if (micros() - Timestamp_Encoder >= 1000)
 		{
 			Timestamp_Encoder = micros();
 			EncoderVel = (EncoderVel * 99 + EncoderVelocity_Update()) / 100.0; //P/S
-			EncoderVel = EncoderVel*(60/3071);  //RPM
+			EncoderVelRPM = (EncoderVelRPM * 99 + (EncoderVel*60)/3072) / 100.0;  //RPM
 
-//			error = RPMInput-EncoderVel;
-//			integral_error += error;
-//			PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
-//			last_error = error;
 
-//			RPMOut();
 
-			if (RPMInput>0)
+			error = RPMInput-EncoderVelRPM;
+			integral_error += error;
+			PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
+			last_error = error;
+
+			if(RPMInput > 0)
 			{
-				error = RPMInput-EncoderVel;
-				integral_error += error;
-				PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
-				last_error = error;
-				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, abs(PWMOut));
 				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
 			}
-			else if(RPMInput<0)
+			else if (RPMInput < 0)
 			{
-				error = -RPMInput-EncoderVel;
-				integral_error += error;
-				PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
-				last_error = error;
 				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
+				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, abs(PWMOut));
 			}
 			else
 			{
-				PWMOut = 0;
 				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
 				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
 			}
 
-//			RPMOut();
-//			if(PWMOut > 0)
-//			{
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
-//			}
-//			else if (PWMOut < 0)
-//			{
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
-//			}
-//			else
-//			{
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-//				__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
-//			}
 
 		}
 
@@ -478,10 +456,10 @@ static void MX_GPIO_Init(void)
 #define  MAX_SUBPOSITION_OVERFLOW 1536
 #define  MAX_ENCODER_PERIOD 3072
 
-int32_t EncoderPositionDiff;
-uint64_t EncoderTimeDiff;
+//int32_t EncoderPositionDiff;
+//uint64_t EncoderTimeDiff;
 uint32_t EncoderNowPosition;
-uint32_t EncoderLastPosition;
+//uint32_t EncoderLastPosition;
 
 float EncoderVelocity_Update()  //Angular velocity
 {
@@ -515,6 +493,8 @@ float EncoderVelocity_Update()  //Angular velocity
 
 	//Calculate velocity
 	//EncoderTimeDiff is in uS
+//	_EncoderVelocity_Update = (EncoderPositionDiff * 1000000) / (float) EncoderTimeDiff;
+//	return _EncoderVelocity_Update;
 	return (EncoderPositionDiff * 1000000) / (float) EncoderTimeDiff;
 
 }
@@ -533,22 +513,48 @@ uint64_t micros()
 
 void RPMOut()
 {
-	if(RPMInput > 0)
-	{
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
-	}
-	else if (RPMInput < 0)
-	{
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
-	}
-	else
-	{
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
-		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
-		PWMOut = 0;
-	}
+//	if(RPMInput > 0)
+//	{
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, PWMOut);
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+//	}
+//	else if (RPMInput < 0)
+//	{
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, PWMOut);
+//	}
+//	else
+//	{
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 0);
+//		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 0);
+//		PWMOut = 0;
+//	}
+//	static float error;
+//	static float integral_error;
+//	static float last_error;
+//	if (RPMInput>=0)
+//	{
+//		error = RPMInput-EncoderVelRPM;
+//	}
+//	else if(RPMInput<0)
+//	{
+//		error = RPMInput*(-1)-EncoderVelRPM*(-1);
+//	}
+//
+//	integral_error += error;
+//	PWMOut = (KP*error) + (KI*integral_error) + (KD*(error-last_error));
+//	last_error = error;
+
+//	if (PWMOut > 10000)
+//	{
+//		PWMOut = 10000;
+//	}
+//	if (PWMOut < -10000)
+//	{
+//		PWMOut = -10000;
+//	}
+//	return PWMOut;
+
 }
 /* USER CODE END 4 */
 
